@@ -1,4 +1,4 @@
-# network-monitor
+# pinger
 定时检测网络连通性的工具
 
 通过ping探测与目标网络的连通性
@@ -6,8 +6,8 @@
 
 ### 使用方法
 ```shell
-docker pull ghcr.io/jorben/network-monitor:latest
-docker run -d -e DEBUG_MODE=true -e BOTTOM_LINE=75 -e BOT_KEY=请填写你的企业微信机器人KEY -e ADDRESS=www.google.com ghcr.io/jorben/network-monitor
+docker pull jorben/pinger:latest
+docker run -d -e DEBUG_MODE=true -e BOTTOM_LINE=75 -e BOT_KEY=请填写你的企业微信机器人KEY -e ADDRESS=www.google.com jorben/pinger:latest
 ```
 
 ### 环境变量说明

@@ -21,7 +21,7 @@ ENV BOT_KEY ""
 ENV DEBUG_MODE "false"
 
 WORKDIR /app
-COPY --from=build /app/network-monitor ./monitor
+COPY --from=build /app/pinger ./pinger
 
-CMD ["/app/monitor"]
+CMD ["/app/pinger"]
 

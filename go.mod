@@ -1,4 +1,4 @@
-module github.com/jorben/network-monitor
+module github.com/jorben/pinger
 
 go 1.20
 
