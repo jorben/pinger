@@ -1,9 +1,12 @@
-FROM golang:1.20-alpine as build
+FROM --platform=$BUILDPLATFORM golang:1.20-alpine as build
 WORKDIR /app
-COPY ["go.mod", "go.sum", "main.go", "./"]
-RUN go build
+ADD . .
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s"
 
-FROM alpine
+FROM --platform=$TARGETPLATFORM alpine
 # This library attempts to send an "unprivileged" ping via UDP. On Linux, this must be enabled
 # RUN sysctl -w net.ipv4.ping_group_range="0 2147483647"
 
