@@ -4,14 +4,23 @@ import (
 	"fmt"
 	"github.com/go-ping/ping"
 	wxworkbot "github.com/vimsucks/wxwork-bot-go"
+	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
+
+func init() {
+	log.SetOutput(os.Stdout)
+}
 
 func main() {
 
 	const LockFile = "/tmp/network_monitor"
+
+	// debug 模式将打印详细日志
+	debugMode, _ := strconv.ParseBool(os.Getenv("DEBUG_MODE"))
 
 	// 获取要检测的目标地址（默认为www.baidu.com）
 	address := os.Getenv("ADDRESS")
@@ -54,6 +63,7 @@ func main() {
 	fmt.Printf("BOTTOM_LINE:\t%.2f\n", bottomLine)
 	fmt.Printf("ALARM_TITLE:\t%s\n", alarmTitle)
 	fmt.Printf("BOT_KEY:\t%s\n", botKey)
+	fmt.Printf("DEBUG_MODE:\t%t\n", debugMode)
 	fmt.Println("***************************************")
 
 	// 定时器
@@ -62,24 +72,32 @@ func main() {
 
 	// 周期执行
 	for range ticker.C {
-		//fmt.Println("round begin...")
+		if debugMode {
+			log.Println("== New round begin ==")
+		}
 		// 测试连通性，获取丢包率
-		passRate, err := pingAddr(address)
+		stats, err := pingAddr(address)
 		if err != nil {
-			fmt.Printf("ERROR: ping %s\n", err.Error())
+			log.Printf("ERROR: ping %s\n", err.Error())
 			continue
 		}
-		//fmt.Printf("passRate: %.2f\n", passRate)
+		if debugMode {
+			log.Printf("Ping %s recv %d, loss %.2f, avgRtt %d\n",
+				stats.IPAddr, stats.PacketsRecv, stats.PacketLoss, stats.AvgRtt)
+		}
+		passRate := 100 - stats.PacketLoss
 
 		// 检测是否满足故障发生通知条件
 		alarmContent := ""
+		needAlarm := false
 		if passRate < bottomLine {
 			alarmContent = fmt.Sprintf("[%s]\n网络故障发生，Ping %s 通过率%.2f%%，低于阈值%.2f%%",
 				alarmTitle, address, passRate, bottomLine)
+			needAlarm = true
 			_, err := os.Stat(LockFile)
 			if err == nil {
 				// 通知过了，不再通知
-				alarmContent = ""
+				needAlarm = false
 			}
 		} else {
 			// 检查是否满足故障恢复通知条件
@@ -88,17 +106,28 @@ func main() {
 				// 故障首次恢复，需要通知
 				alarmContent = fmt.Sprintf("[%s]\n网络故障恢复，Ping %s 通过率%.2f%%，高于阈值%.2f%%",
 					alarmTitle, address, passRate, bottomLine)
+				needAlarm = true
 			}
 		}
 
-		fmt.Printf("msg: %s\n", alarmContent)
+		if debugMode {
+			log.Printf("Need alarm:%t, content: %s\n", needAlarm,
+				strings.Replace(alarmContent, "\n", " ", -1))
+		}
 
 		// 发送通知
-		if len(alarmContent) > 0 && len(bot.Key) > 0 {
+		if needAlarm && len(bot.Key) > 0 {
+			if debugMode {
+				log.Printf("Send alarm to bot, key:%s\n", bot.Key)
+			}
 			err = alarm(bot, alarmContent, LockFile)
 			if err != nil {
-				fmt.Printf("ERROR: alarm %s\n", err.Error())
+				log.Printf("ERROR: alarm %s\n", err.Error())
 			}
+		}
+
+		if debugMode {
+			log.Printf("== Round end ==")
 		}
 	}
 
@@ -128,10 +157,10 @@ func alarm(bot *wxworkbot.WxWorkBot, content string, fileLock string) error {
 	return err
 }
 
-func pingAddr(addr string) (float64, error) {
+func pingAddr(addr string) (*ping.Statistics, error) {
 	pinger, err := ping.NewPinger(addr)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// 执行次数
@@ -140,11 +169,8 @@ func pingAddr(addr string) (float64, error) {
 	pinger.Timeout = 10 * time.Second
 	err = pinger.Run()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	stats := pinger.Statistics()
-	//fmt.Printf("ping %s recv %d, loss %.2f, avgRtt %d\n",
-	//stats.IPAddr, stats.PacketsRecv, stats.PacketLoss, stats.AvgRtt)
-	return 100 - stats.PacketLoss, nil
+	return pinger.Statistics(), nil
 }
