@@ -4,16 +4,11 @@ on:
   push:
     tags:
       - '*'
-env:
-  REPO_NAME: ${GITHUB_REPOSITORY#$GITHUB_REPOSITORY_OWNER/}
 
 jobs:
   build-and-push-image-to-dockerhub:
     runs-on: ubuntu-latest
     steps:
-      - name: CheckTag
-        run: |
-          echo $REPO_NAME
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up QEMU
@@ -31,4 +26,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.REPO_NAME }}:${{ github.ref_name }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ github.event.repository.name }}:${{ github.ref_name }}
