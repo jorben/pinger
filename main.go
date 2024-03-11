@@ -82,46 +82,50 @@ func main() {
 			continue
 		}
 		if debugMode {
-			log.Printf("Ping %s recv %d, loss %.2f, avgRtt %d\n",
-				stats.IPAddr, stats.PacketsRecv, stats.PacketLoss, stats.AvgRtt)
+			log.Printf("Ping %s, send %d, recv %d, loss %.2f%%\n",
+				stats.IPAddr, stats.PacketsSent, stats.PacketsRecv, stats.PacketLoss)
 		}
 		passRate := 100 - stats.PacketLoss
 
 		// 检测是否满足故障发生通知条件
 		alarmContent := ""
 		needAlarm := false
+		locked := isLocked(LockFile)
+
 		if passRate < bottomLine {
-			alarmContent = fmt.Sprintf("[%s]\n网络故障发生，Ping %s 通过率%.2f%%，低于阈值%.2f%%",
+			alarmContent = fmt.Sprintf("[%s]\n网络故障发生，Ping %s 通过率 %.2f%%，低于阈值 %.2f%%",
 				alarmTitle, address, passRate, bottomLine)
-			needAlarm = true
-			_, err := os.Stat(LockFile)
-			if err == nil {
-				// 通知过了，不再通知
-				needAlarm = false
+			if !locked {
+				// 无文件锁，说明首次故障，需通知
+				needAlarm = true
 			}
 		} else {
-			// 检查是否满足故障恢复通知条件
-			_, err := os.Stat(LockFile)
-			if err == nil {
-				// 故障首次恢复，需要通知
-				alarmContent = fmt.Sprintf("[%s]\n网络故障恢复，Ping %s 通过率%.2f%%，高于阈值%.2f%%",
-					alarmTitle, address, passRate, bottomLine)
+			alarmContent = fmt.Sprintf("[%s]\n网络故障恢复，Ping %s 通过率 %.2f%%，高于阈值 %.2f%%",
+				alarmTitle, address, passRate, bottomLine)
+			if locked {
+				// 有文件锁，说明在故障中，需要通知故障恢复
 				needAlarm = true
 			}
 		}
 
 		if debugMode {
-			log.Printf("Need alarm:%t, content: %s\n", needAlarm,
-				strings.Replace(alarmContent, "\n", " ", -1))
+			log.Printf("Need alarm: %t\n", needAlarm)
 		}
 
 		// 发送通知
 		if needAlarm && len(bot.Key) > 0 {
 			if debugMode {
-				log.Printf("Send alarm to bot, key:%s\n", bot.Key)
+				log.Printf("Send alarm to bot, key: %s, Msg: %s\n",
+					bot.Key, strings.Replace(alarmContent, "\n", " ", -1))
 			}
-			err = alarm(bot, alarmContent, LockFile)
-			if err != nil {
+			err = alarm(bot, alarmContent)
+			if err == nil {
+				// 消息发送成功 翻转文件锁
+				err = swLock(LockFile, !locked)
+				if err != nil {
+					log.Printf("ERROR: swLock %s\n", err.Error())
+				}
+			} else {
 				log.Printf("ERROR: alarm %s\n", err.Error())
 			}
 		}
@@ -133,28 +137,36 @@ func main() {
 
 }
 
-func alarm(bot *wxworkbot.WxWorkBot, content string, fileLock string) error {
+// 检查文件锁是否存在
+func isLocked(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		// 文件存在
+		return true
+	} else if !os.IsNotExist(err) {
+		log.Printf("Stat Error, path: %s, err: %s\n", path, err.Error())
+	}
+	return false
+}
 
+// 处理文件锁
+func swLock(path string, lock bool) error {
+	if lock {
+		f, err := os.Create(path)
+		_ = f.Close()
+		return err
+	} else {
+		err := os.Remove(path)
+		return err
+	}
+}
+
+// 发送企业微信机器人消息
+func alarm(bot *wxworkbot.WxWorkBot, content string) error {
 	markdown := wxworkbot.Text{
 		Content: content,
 	}
-	err := bot.Send(markdown)
-	if err != nil {
-		return err
-	}
-	// 发送成功 则处理文件锁
-	_, err = os.Stat(fileLock)
-	if err == nil {
-		// 文件存在 则为故障恢复，清理文件锁
-		err = os.Remove(fileLock)
-		return err
-	} else if os.IsNotExist(err) {
-		// 文件不存在 则为故障发生，需写文件锁
-		f, err := os.Create(fileLock)
-		_ = f.Close()
-		return err
-	}
-	return err
+	return bot.Send(markdown)
 }
 
 func pingAddr(addr string) (*ping.Statistics, error) {
